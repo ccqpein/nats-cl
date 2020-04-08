@@ -19,3 +19,25 @@
 
            (format t "here?: ~A~%" (read-line (usocket:socket-stream socket))))
       (usocket:socket-close socket))))
+
+
+(defstruct nats-connection)
+
+(defun connect-nats-server (url &key (port 4222))
+  "connect to nats servers"
+  (declare (simple-string url))
+  (let ((socket (usocket:socket-connect url
+                                        port
+                                        :element-type 'character
+                                        :timeout 30
+                                        :nodelay t)))
+    (the usocket:usocket socket)
+    ))
+
+
+(defun nats-subs (sokt subject &optional queue-group sid)
+  (declare (usocket:usocket sokt)
+           (simple-string subject queue-group)
+           (fixnum sid))
+  
+  )
