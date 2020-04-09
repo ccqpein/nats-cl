@@ -1,27 +1,8 @@
 (ql:quickload "usocket")
 
-(defun create-client ()
-  (let ((socket (usocket:socket-connect "127.0.0.1" 4222 :element-type 'character)))
-    (unwind-protect 
-	     (progn
-	       (usocket:wait-for-input socket)
-	       (format t "1: ~A~%" (read-line (usocket:socket-stream socket)))
-           (format t "2: ~A~%" (read-line (usocket:socket-stream socket)))
-
-           (format (usocket:socket-stream socket) "pub test1 5~a~a" #\return #\newline)
-           (finish-output (usocket:socket-stream socket))
-
-           (format (usocket:socket-stream socket) "yoyoa~a~a" #\return #\newline)
-           (finish-output (usocket:socket-stream socket))
-
-           ;;(format (usocket:socket-stream socket) "PING~%")
-           ;;(finish-output (usocket:socket-stream socket))
-
-           (format t "here?: ~A~%" (read-line (usocket:socket-stream socket))))
-      (usocket:socket-close socket))))
-
 
 (defstruct nats-connection)
+
 
 (defun connect-nats-server (url &key (port 4222))
   "connect to nats servers"
@@ -35,9 +16,61 @@
     ))
 
 
-(defun nats-subs (sokt subject &optional queue-group sid)
+;;:= TODO: need json parser
+;;; INFO {["option_name":option_value],...}
+(defun nats-info (sokt)
+  )
+
+
+;;; SUB <subject> [queue group] <sid>\r\n
+(defun nats-subs (sokt subject sid &key queue-group)
   (declare (usocket:usocket sokt)
-           (simple-string subject queue-group)
+           (simple-string subject)
            (fixnum sid))
   
+  (format (usocket:socket-stream sokt)
+          "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
+  (finish-output (usocket:socket-stream sokt))
   )
+
+
+;;:= TODO: json parser
+;;; CONNECT {["option_name":option_value],...}
+(defun nats-connect ())
+
+
+;;; PUB <subject> [reply-to] <#bytes>\r\n[payload]\r\n
+(defun nats-pub (sokt subject bytes-size &optional msg &key reply-to)
+  (declare (usocket:usocket sokt)
+           (simple-string subject)
+           (fixnum bytes-size))
+
+  (format (usocket:socket-stream sokt)
+          "pub ~a ~@[~a ~]~a~a~a~@[~a~]~a~a"
+          subject reply-to bytes-size #\return #\newline
+          msg #\return #\newline)
+
+  (finish-output (usocket:socket-stream sokt))
+  )
+
+
+;;; UNSUB <sid> [max_msgs]
+(defun nats-unsub (sokt sid &key max-msgs)
+  (declare (usocket:usocket sokt)
+           (fixnum sid))
+
+  (format (usocket:socket-stream sokt)
+          "unsub ~a~@[ ~a~]~a~a"
+          sid max-msgs #\return #\newline)
+  
+  (finish-output (usocket:socket-stream sokt))
+  )
+
+
+;;;:= TODO:  MSG <subject> <sid> [reply-to] <#bytes>\r\n[payload]\r\n
+
+;;;:= TODO: PING\r\n
+
+;;;:= TODO: PONG\r\n
+
+;;;:= TODO: +OK/ERR
