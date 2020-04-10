@@ -67,10 +67,23 @@
   )
 
 
-;;;:= TODO:  MSG <subject> <sid> [reply-to] <#bytes>\r\n[payload]\r\n
+;;; MSG <subject> <sid> [reply-to] <#bytes>\r\n[payload]\r\n
+(defun nats-msg (sokt subject sid bytes-size &optional msg &key reply-to)
+  (declare (usocket:usocket sokt)
+           (simple-string subject)
+           (fixnum sid bytes-size))
+
+  (format (usocket:socket-stream sokt)
+          "msg ~a ~a ~@[~a ~]~a~a~a~@[~a~]~a~a"
+          subject sid reply-to bytes-size #\return #\newline
+          msg #\return #\newline)
+  
+  (finish-output (usocket:socket-stream sokt))
+  )
 
 ;;;:= TODO: PING\r\n
-
 ;;;:= TODO: PONG\r\n
+(defun read-stream (sokt)
+  )
 
 ;;;:= TODO: +OK/ERR
