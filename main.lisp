@@ -1,7 +1,11 @@
 (ql:quickload "usocket")
 
 
-(defstruct nats-connection)
+(defvar *PING* (format nil "PING~a" #\return))
+(defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
+
+(defvar *PONG* (format nil "PONG~a" #\return))
+;;(defvar *PONG-REP* (format nil "PONG~a~a" #\return #\newline))
 
 
 (defun connect-nats-server (url &key (port 4222))
@@ -81,9 +85,30 @@
   (finish-output (usocket:socket-stream sokt))
   )
 
-;;;:= TODO: PING\r\n
-;;;:= TODO: PONG\r\n
-(defun read-stream (sokt)
-  )
+
+;;:= keep reading data from connection socket and send data to outside stream
+;;:= should have ability to answer pong when receive ping
+;;:= TODO: need error handle
+(defun read-nats-stream (sokt &key output)
+  (let ((stream (usocket:socket-stream sokt)))
+    (loop
+      do (format (if (not output) 't output) "~A~%" (read-line stream)))
+    ))
+
+
+(defun read-nats-stream-answer-ping (sokt &key output)
+  (let ((stream (usocket:socket-stream sokt)))
+    (loop
+      do (let ((data (read-line stream)))
+           (format (if (not output) 't output) "~A~%" data)
+           (if (string= data *PING*)
+               (progn
+                 (format stream "~a" *PING-REP*)
+                 (format (if (not output) 't output) "~a" *PING-REP*)))
+           ))
+    ))
+
+;;:= TEST: (let ((conn (connect-nats-server "localhost"))) (unwind-protect (read-nats-stream-answer-ping conn) (usocket:socket-close conn)))
+
 
 ;;;:= TODO: +OK/ERR
