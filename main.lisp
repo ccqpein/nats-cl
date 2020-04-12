@@ -1,11 +1,11 @@
 (ql:quickload "usocket")
+(ql:quickload "yason")
+(ql:quickload "split-sequence")
 
 
 (defvar *PING* (format nil "PING~a" #\return))
 (defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
-
 (defvar *PONG* (format nil "PONG~a" #\return))
-;;(defvar *PONG-REP* (format nil "PONG~a~a" #\return #\newline))
 
 
 (defun connect-nats-server (url &key (port 4222))
@@ -20,9 +20,9 @@
     ))
 
 
-;;:= TODO: need json parser
 ;;; INFO {["option_name":option_value],...}
-(defun nats-info (sokt)
+(defun nats-info (str)
+  (the hashtable (yason:parse str))
   )
 
 
@@ -31,6 +31,8 @@
   (declare (usocket:usocket sokt)
            (simple-string subject)
            (fixnum sid))
+
+  (usocket:wait-for-input sokt :timeout 15)
   
   (format (usocket:socket-stream sokt)
           "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
@@ -38,8 +40,7 @@
   )
 
 
-;;:= TODO: json parser
-;;; CONNECT {["option_name":option_value],...}
+;;;:= TODO: CONNECT {["option_name":option_value],...}
 (defun nats-connect ())
 
 
@@ -49,6 +50,8 @@
            (simple-string subject)
            (fixnum bytes-size))
 
+  (usocket:wait-for-input sokt :timeout 15)
+  
   (format (usocket:socket-stream sokt)
           "pub ~a ~@[~a ~]~a~a~a~@[~a~]~a~a"
           subject reply-to bytes-size #\return #\newline
@@ -63,6 +66,8 @@
   (declare (usocket:usocket sokt)
            (fixnum sid))
 
+  (usocket:wait-for-input sokt :timeout 15)
+  
   (format (usocket:socket-stream sokt)
           "unsub ~a~@[ ~a~]~a~a"
           sid max-msgs #\return #\newline)
@@ -72,24 +77,22 @@
 
 
 ;;; MSG <subject> <sid> [reply-to] <#bytes>\r\n[payload]\r\n
-(defun nats-msg (sokt subject sid bytes-size &optional msg &key reply-to)
-  (declare (usocket:usocket sokt)
-           (simple-string subject)
-           (fixnum sid bytes-size))
-
-  (format (usocket:socket-stream sokt)
-          "msg ~a ~a ~@[~a ~]~a~a~a~@[~a~]~a~a"
-          subject sid reply-to bytes-size #\return #\newline
-          msg #\return #\newline)
-  
-  (finish-output (usocket:socket-stream sokt))
+(defun nats-msg (subject sid &rest tail)
+  "second return value used for payload"
+  (let (reply-to
+        bytes)
+    (if (> (length tail) 1)
+        (setf reply-to (car tail)
+              bytes (parse-integer (cadr tail)))
+        (setf bytes (parse-integer (car tail))))
+    (values reply-to (make-array bytes :element-type 'character :fill-pointer 0)))
   )
 
 
 ;;:= keep reading data from connection socket and send data to outside stream
 ;;:= should have ability to answer pong when receive ping
-;;:= TODO: need error handle
 (defun read-nats-stream (sokt &key output)
+  (usocket:wait-for-input sokt :timeout 15)
   (let ((stream (usocket:socket-stream sokt)))
     (loop
       do (format (if (not output) 't output) "~A~%" (read-line stream)))
@@ -104,11 +107,10 @@
            (if (string= data *PING*)
                (progn
                  (format stream "~a" *PING-REP*)
+                 (finish-output stream)
                  (format (if (not output) 't output) "~a" *PING-REP*)))
            ))
     ))
-
-;;:= TEST: (let ((conn (connect-nats-server "localhost"))) (unwind-protect (read-nats-stream-answer-ping conn) (usocket:socket-close conn)))
 
 
 ;;;:= TODO: +OK/ERR
