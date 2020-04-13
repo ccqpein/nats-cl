@@ -113,4 +113,7 @@
     ))
 
 
+(defmacro with-nats-stream ())
+
+
 ;;;:= TODO: +OK/ERR
