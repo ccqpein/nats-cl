@@ -5,7 +5,6 @@
 
 (defvar *PING* (format nil "PING~a" #\return))
 (defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
-(defvar *PONG* (format nil "PONG~a" #\return))
 
 
 (defun connect-nats-server (url &key (port 4222))
@@ -20,23 +19,81 @@
     ))
 
 
-;;; INFO {["option_name":option_value],...}
+(defun post-connection (sokt)
+  "parse info and return first pong to server"
+  (let ((info (nats-info (read-line (usocket:socket-stream sokt))))
+        )
+    (consume-ping sokt)
+    info))
+
+
+;;;:= TODO:  INFO {["option_name":option_value],...}
 (defun nats-info (str)
-  (the hashtable (yason:parse str))
+  (yason:parse str)
   )
 
 
+(defun consume-ping (sokt)
+  (let* ((stream (usocket:socket-stream sokt))
+         (this-line (car (split-data (read-line stream)))))
+    (cond ((string= "PING" this-line) (pong sokt))
+          (t "")))) ;;:= need some condition
+
+
 ;;; SUB <subject> [queue group] <sid>\r\n
-(defun nats-subs (sokt subject sid &key queue-group)
+(defun nats-subs (sokt subject sid consume-func &key queue-group)
   (declare (usocket:usocket sokt)
            (simple-string subject)
            (fixnum sid))
-
-  (usocket:wait-for-input sokt :timeout 15)
   
-  (format (usocket:socket-stream sokt)
-          "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
-  (finish-output (usocket:socket-stream sokt))
+  (tagbody
+   start
+     (usocket:wait-for-input sokt :timeout 15)
+     
+     (format (usocket:socket-stream sokt)
+             "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
+
+     (finish-output (usocket:socket-stream sokt))
+
+     (let ((this-line (read-line (usocket:socket-stream sokt))))
+       (if (string/= "+OK" (car (split-data this-line)))
+           (return-from nats-subs (format nil "cannot subs: ~a~%" this-line)))) ;;:= should be contition
+
+     (format t "subscribe ~a successful.~%" subject)
+   
+     (let (flag
+           reply-to
+           msg)
+       (with-nats-stream (sokt ss)
+         (let* ((data (split-data ss))
+                (head (car data)))
+           (if flag
+               (progn
+                 (setf flag nil
+                       reply-to nil)
+                 (funcall consume-func head)) ;; consume message
+             
+               ;; watch
+               (cond 
+                 ((string= "MSG" head)
+                  (progn (setf flag t)
+                         (multiple-value-setq (reply-to msg) ;;:= msg does not used
+                           (apply #'nats-msg (cdr data)))))
+               
+                 ((string= "PING" head)
+                  (progn (pong sokt)
+                         (format t *PING-REP*))) ;; return pong to output for debug
+               
+                 ((string= "-ERR" head)
+                  (format t "close") ;;:= should be condition too
+                  (go restart))
+               
+                 (t (format t "Unmatched data: ~a~%" data)))))))
+
+   restart
+     (setf sokt (connect-nats-server "127.0.0.1")) ;;:= test code
+     (go start)
+     )
   )
 
 
@@ -89,13 +146,13 @@
   )
 
 
-;;:= keep reading data from connection socket and send data to outside stream
-;;:= should have ability to answer pong when receive ping
+;;; keep reading data from connection socket and send data to outside stream
 (defun read-nats-stream (sokt &key output)
   (usocket:wait-for-input sokt :timeout 15)
   (let ((stream (usocket:socket-stream sokt)))
     (loop
-      do (format (if (not output) 't output) "~A~%" (read-line stream)))
+      do (format (if (not output) 't output) "~A~%" (let ((this-line (read-line stream)))
+                                                      (subseq this-line 0 (1- (length this-line))))))
     ))
 
 
@@ -113,7 +170,27 @@
     ))
 
 
-(defmacro with-nats-stream ())
+(defmacro with-nats-stream ((socket data &key init) &body body)
+  (let ((stream (gensym)))
+    `(let ((,stream (usocket:socket-stream ,socket)))
+       ,init
+       (unwind-protect
+            (handler-case
+                (do* ((,data (read-line ,stream) (read-line ,stream))
+                      )
+                     (nil)
+                  ,@body
+                  )
+              (end-of-file (c) (format t "socket has closed: ~a~%" c)))
+         (usocket:socket-close ,socket)))))
 
+
+(defun split-data (str)
+  (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return 
+  (car (multiple-value-list (split-sequence:split-sequence #\Space str))))
+
+
+(defun pong (sokt)
+  (format (usocket:socket-stream sokt) *PING-REP*))
 
 ;;;:= TODO: +OK/ERR
