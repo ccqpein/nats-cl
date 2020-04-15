@@ -1,6 +1,6 @@
 (ql:quickload "usocket")
 (ql:quickload "yason")
-(ql:quickload "split-sequence")
+;;(ql:quickload "split-sequence")
 
 
 (defvar *PING* (format nil "PING~a" #\return))
@@ -21,13 +21,13 @@
 
 (defun post-connection (sokt)
   "parse info and return first pong to server"
-  (let ((info (nats-info (read-line (usocket:socket-stream sokt))))
+  (let ((info (nats-info (cadr (split-data (read-line (usocket:socket-stream sokt))))))
         )
     (consume-ping sokt)
-    info))
+    (values sokt info)))
 
 
-;;;:= TODO:  INFO {["option_name":option_value],...}
+;;; INFO {["option_name":option_value],...}
 (defun nats-info (str)
   (yason:parse str)
   )
@@ -46,54 +46,57 @@
            (simple-string subject)
            (fixnum sid))
   
-  (tagbody
-   start
-     (usocket:wait-for-input sokt :timeout 15)
+  (let (info)
+    (tagbody
+     start
+       (usocket:wait-for-input sokt :timeout 15)
+
+       (multiple-value-setq (sokt info) (post-connection sokt))
      
-     (format (usocket:socket-stream sokt)
-             "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
+       (format (usocket:socket-stream sokt)
+               "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
 
-     (finish-output (usocket:socket-stream sokt))
+       (finish-output (usocket:socket-stream sokt))
 
-     (let ((this-line (read-line (usocket:socket-stream sokt))))
-       (if (string/= "+OK" (car (split-data this-line)))
-           (return-from nats-subs (format nil "cannot subs: ~a~%" this-line)))) ;;:= should be contition
+       (let ((this-line (read-line (usocket:socket-stream sokt))))
+         (if (string/= "+OK" (car (split-data this-line)))
+             (return-from nats-subs (format nil "cannot subs: ~a~%" this-line)))) ;;:= should be contition
 
-     (format t "subscribe ~a successful.~%" subject)
+       (format t "subscribe ~a successful.~%" subject)
    
-     (let (flag
-           reply-to
-           msg)
-       (with-nats-stream (sokt ss)
-         (let* ((data (split-data ss))
-                (head (car data)))
-           (if flag
-               (progn
-                 (setf flag nil
-                       reply-to nil)
-                 (funcall consume-func head)) ;; consume message
+       (let (flag
+             reply-to
+             msg)
+         (with-nats-stream (sokt ss)
+           (let* ((data (split-data ss))
+                  (head (car data)))
+             (if flag
+                 (progn
+                   (setf flag nil
+                         reply-to nil)
+                   (funcall consume-func head)) ;; consume message
              
-               ;; watch
-               (cond 
-                 ((string= "MSG" head)
-                  (progn (setf flag t)
-                         (multiple-value-setq (reply-to msg) ;;:= msg does not used
-                           (apply #'nats-msg (cdr data)))))
+                 ;; watch
+                 (cond 
+                   ((string= "MSG" head)
+                    (progn (setf flag t)
+                           (multiple-value-setq (reply-to msg) ;;:= msg does not used
+                             (apply #'nats-msg (cdr data)))))
                
-                 ((string= "PING" head)
-                  (progn (pong sokt)
-                         (format t *PING-REP*))) ;; return pong to output for debug
+                   ((string= "PING" head)
+                    (progn (pong sokt)
+                           (format t *PING-REP*))) ;; return pong to output for debug
                
-                 ((string= "-ERR" head)
-                  (format t "close") ;;:= should be condition too
-                  (go restart))
+                   ((string= "-ERR" head)
+                    (format t "close") ;;:= should be condition too
+                    (go restart))
                
-                 (t (format t "Unmatched data: ~a~%" data)))))))
+                   (t (format t "Unmatched data: ~a~%" data)))))))
 
-   restart
-     (setf sokt (connect-nats-server "127.0.0.1")) ;;:= test code
-     (go start)
-     )
+     restart
+       (setf sokt (connect-nats-server (gethash "host" info) :port (gethash "port" info)))
+       (go start)
+       ))
   )
 
 
@@ -109,12 +112,15 @@
 
   (usocket:wait-for-input sokt :timeout 15)
   
-  (format (usocket:socket-stream sokt)
-          "pub ~a ~@[~a ~]~a~a~a~@[~a~]~a~a"
-          subject reply-to bytes-size #\return #\newline
-          msg #\return #\newline)
+  (let ((stream (usocket:socket-stream sokt)))
+    (format stream
+            "pub ~a ~@[~a ~]~a~a~a~@[~a~]~a~a"
+            subject reply-to bytes-size #\return #\newline
+            msg #\return #\newline)
 
-  (finish-output (usocket:socket-stream sokt))
+    (finish-output stream)
+    )
+  (read-line (usocket:socket-stream sokt))
   )
 
 
@@ -186,11 +192,24 @@
 
 
 (defun split-data (str)
-  (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return 
-  (car (multiple-value-list (split-sequence:split-sequence #\Space str))))
+  (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return
+  (let ((first-space (position #\Space str)))
+    (list (subseq str 0 first-space)
+            (subseq str (1+ first-space))))  
+  )
 
 
 (defun pong (sokt)
   (format (usocket:socket-stream sokt) *PING-REP*))
 
+
 ;;;:= TODO: +OK/ERR
+(defun err-or-ok (str)
+  "if ok return nil, if err return the condition of err"
+  (let* ((pre-ss (split-data str))
+         (ss (car pre-ss))
+         (err-msg (cadr pre-ss)))
+    (cond ((string= "+OK" ss)
+           nil)
+          (t err-msg) ;;:= TODO: should be condition
+      )))
