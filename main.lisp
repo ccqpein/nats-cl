@@ -1,6 +1,6 @@
 (ql:quickload "usocket")
 (ql:quickload "yason")
-;;(ql:quickload "split-sequence")
+(ql:quickload "split-sequence")
 
 
 (defvar *PING* (format nil "PING~a" #\return))
@@ -40,63 +40,67 @@
           (t "")))) ;;:= need some condition
 
 
+;;; assume sokt is empty
 ;;; SUB <subject> [queue group] <sid>\r\n
-(defun nats-subs (sokt subject sid consume-func &key queue-group)
+(defun nats-subs (sokt subject sid consume-func &key queue-group info)
   (declare (usocket:usocket sokt)
            (simple-string subject)
            (fixnum sid))
-  
-  (let (info)
-    (tagbody
-     start
-       (usocket:wait-for-input sokt :timeout 15)
 
-       (multiple-value-setq (sokt info) (post-connection sokt))
+  (tagbody
+   start
+     ;; subscribe
+     (format (usocket:socket-stream sokt)
+             "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
+
+     ;; ensure command go to server
+     (finish-output (usocket:socket-stream sokt))
+
+     ;; ensure successful
+     (let ((this-line (read-line (usocket:socket-stream sokt))))
+       (if (string/= "+OK" (car (split-data this-line)))
+           (return-from nats-subs (format nil "cannot subs: ~a~%" this-line)))) ;;:= should be contition
+
+     (format t "subscribe ~a successful.~%" subject)
      
-       (format (usocket:socket-stream sokt)
-               "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
-
-       (finish-output (usocket:socket-stream sokt))
-
-       (let ((this-line (read-line (usocket:socket-stream sokt))))
-         (if (string/= "+OK" (car (split-data this-line)))
-             (return-from nats-subs (format nil "cannot subs: ~a~%" this-line)))) ;;:= should be contition
-
-       (format t "subscribe ~a successful.~%" subject)
-   
-       (let (flag
-             reply-to
-             msg)
-         (with-nats-stream (sokt ss)
-           (let* ((data (split-data ss))
-                  (head (car data)))
-             (if flag
-                 (progn
-                   (setf flag nil
-                         reply-to nil)
-                   (funcall consume-func head)) ;; consume message
-             
-                 ;; watch
-                 (cond 
-                   ((string= "MSG" head)
-                    (progn (setf flag t)
-                           (multiple-value-setq (reply-to msg) ;;:= msg does not used
-                             (apply #'nats-msg (cdr data)))))
+     (let (flag
+           reply-to
+           msg)
+       (with-nats-stream (sokt ss)
+         (let* ((data (split-data ss))
+                (head (car data)))
+           (if flag
+               (progn
+                 (setf flag nil
+                       reply-to nil)
+                 (funcall consume-func head)) ;; consume message
                
-                   ((string= "PING" head)
-                    (progn (pong sokt)
-                           (format t *PING-REP*))) ;; return pong to output for debug
-               
-                   ((string= "-ERR" head)
-                    (format t "close") ;;:= should be condition too
-                    (go restart))
-               
-                   (t (format t "Unmatched data: ~a~%" data)))))))
+               ;; watch
+               (cond 
+                 ((string= "MSG" head)
+                  (progn (setf flag t)
+                         (multiple-value-setq (reply-to msg) ;;:= msg does not used
+                           (apply #'nats-msg (cdr data)))))
+                 
+                 ((string= "PING" head)
+                  (progn (pong sokt)
+                         (format t *PING-REP*))) ;; return pong to output for debug
+                 
+                 ((string= "-ERR" head)
+                  (format t "close~%") ;;:= should be condition too
+                  (go restart))
+                 
+                 (t (format t "Unmatched data: ~a~%" data)))))))
 
-     restart
-       (setf sokt (connect-nats-server (gethash "host" info) :port (gethash "port" info)))
-       (go start)
-       ))
+   restart
+     (if (not info) (return-from nats-subs "no info input, no host, cannot reconnect")) ;;:= need to be condition
+     (setf sokt (connect-nats-server (concatenate 'string (gethash "host" info))
+                                     :port (gethash "port" info)))
+
+     (multiple-value-setq (sokt info) (post-connection sokt))
+     
+     (go start)
+     )
   )
 
 
@@ -110,8 +114,6 @@
            (simple-string subject)
            (fixnum bytes-size))
 
-  (usocket:wait-for-input sokt :timeout 15)
-  
   (let ((stream (usocket:socket-stream sokt)))
     (format stream
             "pub ~a ~@[~a ~]~a~a~a~@[~a~]~a~a"
@@ -119,9 +121,9 @@
             msg #\return #\newline)
 
     (finish-output stream)
-    )
-  (read-line (usocket:socket-stream sokt))
-  )
+    ;; ensure it is successfully
+    (if (err-or-ok (read-line stream)) "publish wrong") ;;:= TODO: need to be condition
+    ))
 
 
 ;;; UNSUB <sid> [max_msgs]
@@ -129,36 +131,41 @@
   (declare (usocket:usocket sokt)
            (fixnum sid))
 
-  (usocket:wait-for-input sokt :timeout 15)
-  
-  (format (usocket:socket-stream sokt)
-          "unsub ~a~@[ ~a~]~a~a"
-          sid max-msgs #\return #\newline)
-  
-  (finish-output (usocket:socket-stream sokt))
-  )
+  (let ((stream (usocket:socket-stream sokt)))
+    (format stream
+            "unsub ~a~@[ ~a~]~a~a"
+            sid max-msgs #\return #\newline)
+    
+    (finish-output stream)
+    ;; ensure it is successfully
+    (if (err-or-ok (read-line stream)) "publish wrong") ;;:= TODO: need to be condition
+    ))
 
 
 ;;; MSG <subject> <sid> [reply-to] <#bytes>\r\n[payload]\r\n
-(defun nats-msg (subject sid &rest tail)
+(defun nats-msg (str)
   "second return value used for payload"
   (let (reply-to
-        bytes)
-    (if (> (length tail) 1)
-        (setf reply-to (car tail)
-              bytes (parse-integer (cadr tail)))
-        (setf bytes (parse-integer (car tail))))
+        bytes
+        (data (split-sequence:split-sequence #\Space str)))
+    (if (> (length data) 3)
+        (setf reply-to (nth 2 data)
+              bytes (parse-integer (nth 3 data)))
+        (setf bytes (parse-integer (nth 2 data))))
     (values reply-to (make-array bytes :element-type 'character :fill-pointer 0)))
   )
 
 
 ;;; keep reading data from connection socket and send data to outside stream
 (defun read-nats-stream (sokt &key output)
-  (usocket:wait-for-input sokt :timeout 15)
   (let ((stream (usocket:socket-stream sokt)))
     (loop
-      do (format (if (not output) 't output) "~A~%" (let ((this-line (read-line stream)))
-                                                      (subseq this-line 0 (1- (length this-line))))))
+      do (format (if (not output)
+                     't
+                     output)
+                 "~A~%"
+                 (let ((this-line (read-line stream)))
+                   (subseq this-line 0 (1- (length this-line))))))
     ))
 
 
@@ -188,14 +195,17 @@
                   ,@body
                   )
               (end-of-file (c) (format t "socket has closed: ~a~%" c)))
-         (usocket:socket-close ,socket)))))
+         (progn
+           (usocket:socket-close ,socket))))))
 
 
 (defun split-data (str)
   (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return
   (let ((first-space (position #\Space str)))
-    (list (subseq str 0 first-space)
-            (subseq str (1+ first-space))))  
+    (if (not first-space)
+        (list str)
+        (list (subseq str 0 first-space)
+              (subseq str (1+ first-space)))))  
   )
 
 
@@ -203,7 +213,7 @@
   (format (usocket:socket-stream sokt) *PING-REP*))
 
 
-;;;:= TODO: +OK/ERR
+;;; +OK/ERR
 (defun err-or-ok (str)
   "if ok return nil, if err return the condition of err"
   (let* ((pre-ss (split-data str))

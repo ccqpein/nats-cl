@@ -1,2 +1,5 @@
 *.fasl
 trash*
+GPATH
+GRTAGS
+GTAGS
