@@ -1,6 +1,8 @@
-(ql:quickload "usocket")
-(ql:quickload "yason")
-(ql:quickload "split-sequence")
+(defpackage #:nats-lib
+  (:use #:CL)
+  (:export #:*PING*))
+
+(in-package #:nats-lib)
 
 
 (defvar *PING* (format nil "PING~a" #\return))
@@ -158,6 +160,7 @@
 
 ;;; keep reading data from connection socket and send data to outside stream
 (defun read-nats-stream (sokt &key output)
+  "just print out nats stream one by one"
   (let ((stream (usocket:socket-stream sokt)))
     (loop
       do (format (if (not output)
@@ -184,6 +187,8 @@
 
 
 (defmacro with-nats-stream ((socket data &key init) &body body)
+  "read and handler data stream. keyword :init will eval before start to 
+read data from socket. @body use \"data\" become the argument binding."
   (let ((stream (gensym)))
     `(let ((,stream (usocket:socket-stream ,socket)))
        ,init
@@ -200,6 +205,7 @@
 
 
 (defun split-data (str)
+  "split data with '(protocol tails)"
   (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return
   (let ((first-space (position #\Space str)))
     (if (not first-space)
@@ -210,6 +216,7 @@
 
 
 (defun pong (sokt)
+  "answer the ping"
   (format (usocket:socket-stream sokt) *PING-REP*))
 
 
