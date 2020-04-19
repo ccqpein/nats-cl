@@ -8,7 +8,7 @@
 - [ ] more doc && README
 - [ ] protocol connection
 
-## Usage ##
+## Install ##
 
 manually compile and use this repo
 
@@ -27,5 +27,18 @@ OR, import by quicklisp, make sure you have installed it first:
 (ql:quickload "nats-cl")
 ```
 
+## Usage ##
 
-Then, check `examples.lisp`
+[Here](https://docs.nats.io/nats-protocol/nats-protocol#protocol-conventions) is NATs' protocol details. 
+
+`examples.lisp` includes how to use this client lib.
+
+After connection be made, NATs server will send a `INFO` message and a `PING` message to client. So, in examples: 
+
+```lisp
+(let ((socket (connect-nats-server "127.0.0.1")) 
+      info)
+  (multiple-value-setq (sokt info) (post-connection sokt)))
+```
+
+`post-connection` always the first step after connect to servers.
