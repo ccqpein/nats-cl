@@ -1,13 +1,5 @@
 # README #
 
-### TODO ###
-- [ ] conditions
-- [x] organise code
-- [ ] JWT support
-- [ ] more examples
-- [ ] more doc && README
-- [ ] protocol connection
-
 ## Install ##
 
 manually compile and use this repo
@@ -42,3 +34,12 @@ After connection be made, NATs server will send a `INFO` message and a `PING` me
 ```
 
 `post-connection` always the first step after connect to servers.
+
+
+### TODO ###
+- [ ] conditions
+- [x] organise code
+- [ ] JWT support
+- [ ] more examples
+- [ ] more doc && README
+- [ ] protocol connection
