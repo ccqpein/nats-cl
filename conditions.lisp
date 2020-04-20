@@ -1,4 +1,13 @@
-;;; eval this at beginning, before macro expand
+(defpackage #:conditions
+  (:use #:CL)
+  (:export #:*ERRORS*
+           #:*ERROR-MAP*))
+
+(in-package #:conditions)
+
+;;; Macro will expand first and run in toplevel, and macro need
+;;; *ERRORS* and *ERROR-MAP*, so these two global var should run in
+;;; compilation time
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defvar *ERRORS*
     '((unknown-protocol 
@@ -71,6 +80,7 @@
                   (msg (caadr e))
                   (detail (cdadr e)))
               (setf (gethash msg *ERROR-MAP*) symbol) ;; insert condition in *error-map*
+              (export symbol)
               `(define-condition ,symbol (error)
                  ()
                  (:documentation ,detail)))
@@ -78,5 +88,5 @@
     finally (return (cons 'progn result))
     ))
 
-;;; expand macro in toplevel, auto make conditions.
+;;; expand macro in toplevel, auto make all conditions.
 (auto-make-conditions)

@@ -15,6 +15,8 @@
   
   :defsystem-depends-on ("usocket" "yason" "split-sequence")
   
-  :components ((:file "nats-lib"))
+  :components ((:file "conditions")
+               (:file "nats-lib"
+                :depends-on ("conditions")))
   )
 

@@ -1,5 +1,5 @@
 (defpackage #:nats-lib
-  (:use #:CL)
+  (:use #:CL #:conditions)
   (:export #:*PING*))
 
 (in-package #:nats-lib)
