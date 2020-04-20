@@ -1,7 +1,7 @@
 (defpackage #:conditions
   (:use #:CL)
   (:export #:*ERRORS*
-           #:*ERROR-MAP*))
+           #:*ERROR-MAP*)) ;; other conditions symbol export in macro `auto-make-conditions`
 
 (in-package #:conditions)
 
@@ -87,6 +87,7 @@
       into result
     finally (return (cons 'progn result))
     ))
+
 
 ;;; expand macro in toplevel, auto make all conditions.
 (auto-make-conditions)

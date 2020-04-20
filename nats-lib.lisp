@@ -217,7 +217,9 @@ read data from socket. @body use \"data\" become the argument binding."
 
 (defun pong (sokt)
   "answer the ping"
-  (format (usocket:socket-stream sokt) *PING-REP*))
+  (format (usocket:socket-stream sokt) *PING-REP*)
+  (finish-output (usocket:socket-stream sokt))
+  )
 
 
 ;;; +OK/ERR

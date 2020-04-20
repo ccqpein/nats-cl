@@ -1,5 +1,5 @@
 ;;; subscribe
-(let* ((sokt (nats-lib:connect-nats-server "127.0.0.1"))
+(let* ((sokt (connect-nats-server "127.0.0.1"))
        info
        )
   (multiple-value-setq (sokt info) (post-connection sokt))
