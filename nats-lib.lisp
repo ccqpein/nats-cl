@@ -42,6 +42,24 @@
           (t "")))) ;;:= need some condition
 
 
+(defmacro with-nats-stream ((socket data &key init) &body body)
+  "read and handler data stream. keyword :init will eval before start to 
+read data from socket. @body use \"data\" become the argument binding."
+  (let ((stream (gensym)))
+    `(let ((,stream (usocket:socket-stream ,socket)))
+       ,init
+       (unwind-protect
+            (handler-case
+                (do* ((,data (read-line ,stream) (read-line ,stream))
+                      )
+                     (nil)
+                  ,@body
+                  )
+              (end-of-file (c) (format t "socket has closed: ~a~%" c)))
+         (progn
+           (usocket:socket-close ,socket))))))
+
+
 ;;; assume sokt is empty
 ;;; SUB <subject> [queue group] <sid>\r\n
 (defun nats-subs (sokt subject sid consume-func &key queue-group info)
@@ -186,22 +204,6 @@
     ))
 
 
-(defmacro with-nats-stream ((socket data &key init) &body body)
-  "read and handler data stream. keyword :init will eval before start to 
-read data from socket. @body use \"data\" become the argument binding."
-  (let ((stream (gensym)))
-    `(let ((,stream (usocket:socket-stream ,socket)))
-       ,init
-       (unwind-protect
-            (handler-case
-                (do* ((,data (read-line ,stream) (read-line ,stream))
-                      )
-                     (nil)
-                  ,@body
-                  )
-              (end-of-file (c) (format t "socket has closed: ~a~%" c)))
-         (progn
-           (usocket:socket-close ,socket))))))
 
 
 (defun split-data (str)
