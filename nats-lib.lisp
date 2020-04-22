@@ -21,12 +21,30 @@
     ))
 
 
+(defun split-data (str)
+  "split data with '(protocol tails)"
+  (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return
+  (let ((first-space (position #\Space str)))
+    (if (not first-space)
+        (list str)
+        (list (subseq str 0 first-space)
+              (subseq str (1+ first-space)))))  
+  )
+
+
 (defun post-connection (sokt)
   "parse info and return first pong to server"
   (let ((info (nats-info (cadr (split-data (read-line (usocket:socket-stream sokt))))))
         )
     (consume-ping sokt)
     (values sokt info)))
+
+
+(defun pong (sokt)
+  "answer the ping"
+  (format (usocket:socket-stream sokt) *PING-REP*)
+  (finish-output (usocket:socket-stream sokt))
+  )
 
 
 ;;; INFO {["option_name":option_value],...}
@@ -49,15 +67,43 @@ read data from socket. @body use \"data\" become the argument binding."
     `(let ((,stream (usocket:socket-stream ,socket)))
        ,init
        (unwind-protect
-            (handler-case
-                (do* ((,data (read-line ,stream) (read-line ,stream))
-                      )
-                     (nil)
-                  ,@body
+            (do* ((,data (read-line ,stream) (read-line ,stream))
                   )
-              (end-of-file (c) (format t "socket has closed: ~a~%" c)))
+                 (nil)
+              ,@body
+              )
          (progn
            (usocket:socket-close ,socket))))))
+
+
+;;; +OK/ERR
+(defun err-or-ok (str)
+  "if ok return nil, else give error. this function only use when
+response mighe be ok OR err. if you know it might be err with something else.
+make error directly"
+  (let* ((pre-ss (split-data str))
+         (ss (car pre-ss))
+         (err-msg (cadr pre-ss)))
+    (cond ((string= "+OK" ss)
+           nil)
+          (t (error (conditions:get-conditions err-msg)
+                    :error-message err-msg)) ; re-write error-message for giving more details
+          )))
+
+
+;;; MSG <subject> <sid> [reply-to] <#bytes>\r\n[payload]\r\n
+(defun nats-msg (str)
+  "second return value used for payload"
+  (let (reply-to
+        bytes
+        (data (split-sequence:split-sequence #\Space str)))
+    (if (> (length data) 3)
+        (setf reply-to (nth 2 data)
+              bytes (parse-integer (nth 3 data)))
+        (setf bytes (parse-integer (nth 2 data))))
+    (values reply-to
+            (make-array bytes :element-type 'character :fill-pointer 0)))
+  )
 
 
 ;;; assume sokt is empty
@@ -78,8 +124,7 @@ read data from socket. @body use \"data\" become the argument binding."
 
      ;; ensure successful
      (let ((this-line (read-line (usocket:socket-stream sokt))))
-       (if (string/= "+OK" (car (split-data this-line)))
-           (return-from nats-subs (format nil "cannot subs: ~a~%" this-line)))) ;;:= should be contition
+       (err-or-ok this-line))
 
      (format t "subscribe ~a successful.~%" subject)
      
@@ -88,7 +133,8 @@ read data from socket. @body use \"data\" become the argument binding."
            msg)
        (with-nats-stream (sokt ss)
          (let* ((data (split-data ss))
-                (head (car data)))
+                (head (car data))
+                (tail (cadr data)))
            (if flag
                (progn
                  (setf flag nil
@@ -99,20 +145,26 @@ read data from socket. @body use \"data\" become the argument binding."
                (cond 
                  ((string= "MSG" head)
                   (progn (setf flag t)
-                         (multiple-value-setq (reply-to msg) ;;:= msg does not used
-                           (apply #'nats-msg (cdr data)))))
+                         (multiple-value-setq (reply-to msg) ;; msg does not used
+                           (nats-msg tail))))
                  
                  ((string= "PING" head)
                   (progn (pong sokt)
-                         (format t *PING-REP*))) ;; return pong to output for debug
+                         (format t *PING-REP*))) ;;:= return pong to output for debug
                  
                  ((string= "-ERR" head)
-                  (format t "close~%") ;;:= should be condition too
-                  (go restart))
-                 
-                 (t (format t "Unmatched data: ~a~%" data)))))))
+                  (error (conditions:get-conditions tail)
+                         :error-message tail)
+                  ;;(go restart)
+                  )
 
-   restart
+                 ((string= "INFO" head)
+                  ) ;;:= TODO: info can receive anytime
+                 
+                 (t (error (conditions:get-conditions tail)
+                           :error-message tail)))))))
+     
+   restart ;;:= TODO: need use restart code to info refresh
      (if (not info) (return-from nats-subs "no info input, no host, cannot reconnect")) ;;:= need to be condition
      (setf sokt (connect-nats-server (concatenate 'string (gethash "host" info))
                                      :port (gethash "port" info)))
@@ -142,7 +194,7 @@ read data from socket. @body use \"data\" become the argument binding."
 
     (finish-output stream)
     ;; ensure it is successfully
-    (if (err-or-ok (read-line stream)) "publish wrong") ;;:= TODO: need to be condition
+    (err-or-ok (read-line stream))
     ))
 
 
@@ -158,22 +210,8 @@ read data from socket. @body use \"data\" become the argument binding."
     
     (finish-output stream)
     ;; ensure it is successfully
-    (if (err-or-ok (read-line stream)) "publish wrong") ;;:= TODO: need to be condition
+    (err-or-ok (read-line stream))
     ))
-
-
-;;; MSG <subject> <sid> [reply-to] <#bytes>\r\n[payload]\r\n
-(defun nats-msg (str)
-  "second return value used for payload"
-  (let (reply-to
-        bytes
-        (data (split-sequence:split-sequence #\Space str)))
-    (if (> (length data) 3)
-        (setf reply-to (nth 2 data)
-              bytes (parse-integer (nth 3 data)))
-        (setf bytes (parse-integer (nth 2 data))))
-    (values reply-to (make-array bytes :element-type 'character :fill-pointer 0)))
-  )
 
 
 ;;; keep reading data from connection socket and send data to outside stream
@@ -203,34 +241,3 @@ read data from socket. @body use \"data\" become the argument binding."
            ))
     ))
 
-
-
-
-(defun split-data (str)
-  "split data with '(protocol tails)"
-  (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return
-  (let ((first-space (position #\Space str)))
-    (if (not first-space)
-        (list str)
-        (list (subseq str 0 first-space)
-              (subseq str (1+ first-space)))))  
-  )
-
-
-(defun pong (sokt)
-  "answer the ping"
-  (format (usocket:socket-stream sokt) *PING-REP*)
-  (finish-output (usocket:socket-stream sokt))
-  )
-
-
-;;; +OK/ERR
-(defun err-or-ok (str)
-  "if ok return nil, if err return the condition of err"
-  (let* ((pre-ss (split-data str))
-         (ss (car pre-ss))
-         (err-msg (cadr pre-ss)))
-    (cond ((string= "+OK" ss)
-           nil)
-          (t err-msg) ;;:= TODO: should be condition
-      )))
