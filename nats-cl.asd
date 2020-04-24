@@ -13,10 +13,9 @@
   :author "ccQpein"
   :maintainer "ccQpein"
   
-  :defsystem-depends-on ("usocket" "yason" "split-sequence")
+  :defsystem-depends-on ("usocket" "yason" "str")
   
   :components ((:file "conditions")
                (:file "nats-lib"
                 :depends-on ("conditions")))
   )
-

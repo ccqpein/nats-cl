@@ -70,7 +70,7 @@
       (permissions-violation-for-pub 
        ("'Permissions Violation for Publish to <subject>'" .
         "The user specified in the CONNECT message does not have permissions to publish to the subject."))
-
+      
       ;; for all other errors unknown
       (unknown-error
        ("Unknown Error" .

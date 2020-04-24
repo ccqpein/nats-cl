@@ -1,6 +1,6 @@
 (defpackage #:nats-lib
   (:use #:CL #:conditions)
-  (:export #:*PING*))
+  (:export #:*PING*)) ;;:= TODO: need export functions
 
 (in-package #:nats-lib)
 
@@ -57,7 +57,7 @@
   (let* ((stream (usocket:socket-stream sokt))
          (this-line (car (split-data (read-line stream)))))
     (cond ((string= "PING" this-line) (pong sokt))
-          (t "")))) ;;:= need some condition
+          (t (warn "Message is not PING")))))
 
 
 (defmacro with-nats-stream ((socket data &key init) &body body)
@@ -96,7 +96,7 @@ make error directly"
   "second return value used for payload"
   (let (reply-to
         bytes
-        (data (split-sequence:split-sequence #\Space str)))
+        (data (str:split-omit-nulls #\Space str)))
     (if (> (length data) 3)
         (setf reply-to (nth 2 data)
               bytes (parse-integer (nth 3 data)))
@@ -108,71 +108,79 @@ make error directly"
 
 ;;; assume sokt is empty
 ;;; SUB <subject> [queue group] <sid>\r\n
-(defun nats-subs (sokt subject sid consume-func &key queue-group info)
+(defun nats-subs (sokt subject sid consume-func &key queue-group info retry-time)
   (declare (usocket:usocket sokt)
            (simple-string subject)
            (fixnum sid))
 
-  (tagbody
-   start
-     ;; subscribe
-     (format (usocket:socket-stream sokt)
-             "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
+  (let ((connect-urls (gethash "connect_urls" info)) ;; list of servers' ip
+        (retry retry-time)) ;; used to count times of handle-bind auto restart
+    (tagbody
+     start
+       ;; subscribe
+       (format (usocket:socket-stream sokt)
+               "sub ~a ~@[~a ~]~a~a~a" subject queue-group sid #\return #\newline)
+       
+       ;; ensure command go to server
+       (finish-output (usocket:socket-stream sokt))
 
-     ;; ensure command go to server
-     (finish-output (usocket:socket-stream sokt))
+       ;; ensure successful
+       (let ((this-line (read-line (usocket:socket-stream sokt))))
+         (err-or-ok this-line))
 
-     ;; ensure successful
-     (let ((this-line (read-line (usocket:socket-stream sokt))))
-       (err-or-ok this-line))
-
-     (format t "subscribe ~a successful.~%" subject)
+       (format t "subscribe ~a successful.~%" subject)
      
-     (let (flag
-           reply-to
-           msg)
-       (with-nats-stream (sokt ss)
-         (let* ((data (split-data ss))
-                (head (car data))
-                (tail (cadr data)))
-           (if flag
-               (progn
-                 (setf flag nil
-                       reply-to nil)
-                 (funcall consume-func head)) ;; consume message
+       (let (flag
+             reply-to
+             msg)
+         (with-nats-stream (sokt ss)
+           (let* ((data (split-data ss))
+                  (head (car data))
+                  (tail (cadr data)))
+             (if flag
+                 (progn
+                   (setf flag nil
+                         reply-to nil)
+                   (funcall consume-func head)) ;; consume message
                
-               ;; watch
-               (cond 
-                 ((string= "MSG" head)
-                  (progn (setf flag t)
-                         (multiple-value-setq (reply-to msg) ;; msg does not used
-                           (nats-msg tail))))
+                 ;; watch
+                 (cond 
+                   ((string= "MSG" head)
+                    (progn (setf flag t)
+                           (multiple-value-setq (reply-to msg) ;; msg does not used
+                             (nats-msg tail))))
                  
-                 ((string= "PING" head)
-                  (progn (pong sokt)
-                         (format t *PING-REP*))) ;;:= return pong to output for debug
-                 
-                 ((string= "-ERR" head)
-                  (error (conditions:get-conditions tail)
-                         :error-message tail)
-                  ;;(go restart)
-                  )
+                   ((string= "PING" head)
+                    (pong sokt))
 
-                 ((string= "INFO" head)
-                  ) ;;:= TODO: info can receive anytime
-                 
-                 (t (error (conditions:get-conditions tail)
-                           :error-message tail)))))))
-     
-   restart ;;:= TODO: need use restart code to info refresh
-     (if (not info) (return-from nats-subs "no info input, no host, cannot reconnect")) ;;:= need to be condition
-     (setf sokt (connect-nats-server (concatenate 'string (gethash "host" info))
-                                     :port (gethash "port" info)))
+                   ((string= "INFO" head)
+                    ;; update info and connect-urls
+                    (setf info (nats-info tail))
+                    (dolist (u (gethash "connect_urls" info)) (pushnew a connect-urls))
+                    )
 
-     (multiple-value-setq (sokt info) (post-connection sokt))
+                   ((string= "-ERR" head)
+                    (restart-case
+                        (error (conditions:get-conditions tail)
+                               :error-message tail)
+                      (try-to-restart ()
+                        :report "restart this subscription by reconnect socket with stored info"
+                        (go restart))
+                      )
+                    )
+                 
+                   (t (error (conditions:get-conditions tail)
+                             :error-message tail)))))))
      
-     (go start)
-     )
+     restart ;;:= TODO: need use restart code to info refresh
+       (if (not info) (return-from nats-subs "no info input, no host, cannot reconnect")) ;;:= need to be condition
+       (setf sokt (connect-nats-server (concatenate 'string (gethash "host" info))
+                                       :port (gethash "port" info)))
+
+       (multiple-value-setq (sokt info) (post-connection sokt))
+     
+       (go start)
+       ))
   )
 
 
