@@ -37,10 +37,10 @@ After connection be made, NATs server will send a `INFO` message and a `PING` me
 
 
 ### TODO ###
-- [ ] conditions
+- [x] conditions
 - [x] organise code
 - [ ] JWT support
 - [ ] Leaf nodes
-- [ ] more examples
+- [x] more examples
 - [ ] more doc && README
 - [ ] protocol connection

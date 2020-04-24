@@ -1,6 +1,18 @@
 (defpackage #:nats-lib
   (:use #:CL #:conditions)
-  (:export #:*PING*)) ;;:= TODO: need export functions
+  (:export
+   #:connect-nats-server
+   #:post-connection
+   #:pong
+   #:nats-info
+   #:consume-ping
+   #:with-nats-stream
+   #:err-or-ok
+   #:nats-msg
+   #:nats-subs
+   #:nats-pub
+   #:nats-unsub
+   )) 
 
 (in-package #:nats-lib)
 
@@ -113,7 +125,7 @@ make error directly"
            (simple-string subject)
            (fixnum sid))
 
-  (let ((connect-urls (gethash "connect_urls" info)) ;; list of servers' ip
+  (let ((connect-urls (if info (gethash "connect_urls" info) '())) ;; list of servers' ip
         (retry retry-time)) ;; used to count times of handle-bind auto restart
     (tagbody
      start
@@ -172,10 +184,17 @@ make error directly"
                    (t (error (conditions:get-conditions tail)
                              :error-message tail)))))))
      
-     restart ;;:= TODO: need use restart code to info refresh
-       (if (not info) (return-from nats-subs "no info input, no host, cannot reconnect")) ;;:= need to be condition
-       (setf sokt (connect-nats-server (concatenate 'string (gethash "host" info))
-                                       :port (gethash "port" info)))
+     restart
+       (if (and (not info) (not connect-urls))
+           (error "no binding of 'info' or connect-urls, cannot restart"))
+       
+       (setf sokt
+             (if info
+                 (connect-nats-server (concatenate 'string (gethash "host" info))
+                                      :port (gethash "port" info))
+                 (let ((temp (str:split #\: (car connect-urls))))
+                   (connect-nats-server (car temp) :port (cadr temp)))
+                 ))
 
        (multiple-value-setq (sokt info) (post-connection sokt))
      
