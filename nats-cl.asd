@@ -16,6 +16,7 @@
   :defsystem-depends-on ("usocket" "yason" "str")
   
   :components ((:file "conditions")
+               (:file "credentials")
                (:file "nats-lib"
-                :depends-on ("conditions")))
+                :depends-on ("conditions" "credentials")))
   )

@@ -1,5 +1,8 @@
 (defpackage #:nats-cred
-  (:use #:CL)) 
+  (:use #:CL)
+  (:export
+   #:read-creds-file
+   #:sig-nonce)) 
 
 (in-package #:nats-cred)
 
@@ -28,7 +31,7 @@
       finally (return (values jwt nkey))
      )))
 
-(defun sig-nonce (nonce)
+(defun sig-nonce (nonce nkey)
   "return signature generated from nonce"
   )
 

@@ -1,5 +1,5 @@
 (defpackage #:nats-lib
-  (:use #:CL #:conditions)
+  (:use #:CL #:conditions #:nats-cred)
   (:export
    #:connect-nats-server
    #:post-connection
@@ -21,15 +21,28 @@
 (defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
 
 
-(defun connect-nats-server (url &key (port 4222))
+;;:= TODO: post connection should embed this function
+(defun connect-nats-server (url &key (port 4222) cred)
   "connect to nats servers"
   (declare (simple-string url))
-  (let ((socket (usocket:socket-connect url
-                                        port
-                                        :element-type 'character
-                                        :timeout 30
-                                        :nodelay t)))
-    (the usocket:usocket socket)
+  (let* ((sokt (usocket:socket-connect url
+                                       port
+                                       :element-type 'character
+                                       :timeout 30
+                                       :nodelay t))
+         (info (nats-info (cadr (split-data (read-line (usocket:socket-stream sokt))))))
+         jwt nkey)
+
+    ;; read jwt and nkey
+    (if cred
+        (multiple-value-bind (jet nkey) (nats-cred:read-creds-file (pathname cred))))
+
+    
+    ;; put connect info to server
+    ;;(nats-connect )
+    
+    ;;:= TODO: need consume ping
+    (values (the usocket:usocket socket) info)
     ))
 
 
@@ -204,7 +217,35 @@ make error directly"
 
 
 ;;;:= TODO: CONNECT {["option_name":option_value],...}
-(defun nats-connect ())
+(defun nats-connect (&rest pairs)
+  (let ((table (make-hash-table)))
+    ;; put init var
+    (loop
+      for (k v) in '(("verbose" nil)
+                     ("pedantic" nil)
+                     ("tls_required" nil)
+                     ("name" "")
+                     ("lang" "common-lisp")
+                     ("version" "TODO") ;;:= TODO: need find where to put version
+                     ("protocol" 1)     ;;:= TODO: this maybe change 
+                     ("echo" t))
+      do (setf (gethash k table) v))
+
+    ;; update with pairs
+    (if (not (evenp (length pairs))) (error "~a length is not even" pairs))
+
+    (do ((k (car pairs) (car pairs))
+         (v (cadr pairs) (cadr pairs)))
+        ((not pairs))
+      (setf (gethash k table) v
+            pairs (cddr pairs)))
+
+    ;; return str, with CONNECT at beginning
+    (format nil "CONNECT ~a~a~a"
+            (with-output-to-string (s)
+                (yason:encode table s))
+            #\return #\newline)
+    ))
 
 
 ;;; PUB <subject> [reply-to] <#bytes>\r\n[payload]\r\n
