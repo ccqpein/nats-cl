@@ -1,5 +1,5 @@
 (defpackage #:nats-cred
-  (:use #:CL)
+  (:use #:CL #:crypto #:cl-base32 #:cl-base64)
   (:export
    #:read-creds-file
    #:sig-nonce)) 
@@ -31,7 +31,16 @@
       finally (return (values jwt nkey))
      )))
 
+
+;; ed25519 algorithm
 (defun sig-nonce (nonce nkey)
   "return signature generated from nonce"
+  (let* ((pk (crypto:make-private-key
+              :ed25519
+              :x (subseq (cl-base32:base32-to-bytes nkey)
+                         2 34)))
+         (sign (crypto:sign-message pk
+                                    (sb-ext:string-to-octets nonce))))
+    (cl-base64:usb8-array-to-base64-string sign))
   )
 
