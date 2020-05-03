@@ -41,6 +41,15 @@
                          2 34)))
          (sign (crypto:sign-message pk
                                     (sb-ext:string-to-octets nonce))))
-    (cl-base64:usb8-array-to-base64-string sign))
-  )
+    (coerce
+     (reverse (loop
+                with result = '()
+                for c across (cl-base64:usb8-array-to-base64-string sign)
+                do (case c
+                     (#\/ (push #\_ result))
+                     (#\+ (push #\- result))
+                     (#\= (return result))
+                     (otherwise (push c result)))
+                ))
+     'string)))
 

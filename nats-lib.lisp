@@ -2,7 +2,6 @@
   (:use #:CL #:conditions #:nats-cred)
   (:export
    #:connect-nats-server
-   #:post-connection
    #:pong
    #:nats-info
    #:consume-ping
@@ -21,7 +20,6 @@
 (defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
 
 
-;;:= TODO: post connection should embed this function
 (defun connect-nats-server (url &key (port 4222) cred)
   "connect to nats servers"
   (declare (simple-string url))
@@ -35,14 +33,22 @@
 
     ;; read jwt and nkey
     (if cred
-        (multiple-value-bind (jet nkey) (nats-cred:read-creds-file (pathname cred))))
+        (progn (multiple-value-setq (jwt nkey)
+                 (nats-cred:read-creds-file (pathname cred)))
+               
+               ;; put connect info to server
+               (format (usocket:socket-stream sokt)
+                       (nats-connect "jwt" jwt
+                                     "sig" (nats-cred:sig-nonce (gethash "nonce" info) nkey)))
 
+               (finish-output (usocket:socket-stream sokt))
+               (err-or-ok (read-line (usocket:socket-stream sokt)))))
+
+    ;; consume first PING
+    (consume-ping sokt)
     
-    ;; put connect info to server
-    ;;(nats-connect )
-    
-    ;;:= TODO: need consume ping
-    (values (the usocket:usocket socket) info)
+    ;; return 
+    (values (the usocket:usocket sokt) info)
     ))
 
 
@@ -57,6 +63,8 @@
   )
 
 
+;; 2020/5/2 OBSOLETE: this function used right after socket connection, answer first PING
+;; and return info. Function connect-nats-server take care of this now
 (defun post-connection (sokt)
   "parse info and return first pong to server"
   (let ((info (nats-info (cadr (split-data (read-line (usocket:socket-stream sokt))))))

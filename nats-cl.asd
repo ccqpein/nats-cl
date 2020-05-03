@@ -13,7 +13,7 @@
   :author "ccQpein"
   :maintainer "ccQpein"
   
-  :defsystem-depends-on ("usocket" "yason" "str")
+  :defsystem-depends-on ("usocket" "yason" "str" "ironclad" "cl-base32" "cl-base64")
   
   :components ((:file "conditions")
                (:file "credentials")

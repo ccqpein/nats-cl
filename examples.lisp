@@ -45,3 +45,7 @@
   ;; sokt will close when with-nats-stream macro finish
   (with-nats-stream (sokt data)
     (format t "~a~%" data)))
+
+
+;;; Connect with creds file
+
