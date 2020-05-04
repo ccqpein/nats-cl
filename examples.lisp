@@ -1,8 +1,20 @@
+;;; connect server
+(let ((sokt (connect-nats-server "127.0.0.1")))
+  (read-nats-stream-answer-ping sokt))
+
+
+;;; connect server and get info
+(multiple-value-bind (sokt info)
+    (connect-nats-server "127.0.0.1")
+  (format t "hashtable info ~a~%" info)
+  (read-nats-stream-answer-ping sokt))
+
+
 ;;; subscribe
-(let* ((sokt (connect-nats-server "127.0.0.1"))
+(let* (sokt
        info
        )
-  (multiple-value-setq (sokt info) (post-connection sokt))
+  (multiple-value-setq (sokt info) (connect-nats-server "127.0.0.1"))
   (nats-subs sokt
              "test"
              1
@@ -11,10 +23,10 @@
              ))
 
 ;;; with queue group
-(let* ((sokt (connect-nats-server "127.0.0.1"))
+(let* (sokt 
        info
        )
-  (multiple-value-setq (sokt info) (post-connection sokt))
+  (multiple-value-setq (sokt info) (connect-nats-server "127.0.0.1"))
   (nats-subs sokt
              "test"
              1
@@ -25,10 +37,10 @@
 
 
 ;;; publish message
-(let* ((sokt (connect-nats-server "127.0.0.1"))
+(let* (sokt
        info
        )
-  (multiple-value-setq (sokt info) (post-connection sokt))
+  (multiple-value-setq (sokt info) (connect-nats-server "127.0.0.1"))
   (nats-pub sokt
             "test"
             5
@@ -37,9 +49,9 @@
 
 
 ;;; write you own message handler
-(let ((sokt (connect-nats-server "127.0.0.1"))
+(let (sokt 
       info)
-  (multiple-value-setq (sokt info) (post-connection sokt))
+  (multiple-value-setq (sokt info) (connect-nats-server "127.0.0.1"))
   ;; with-nats-stream macro will read message in stream one by one
   ;; then binding message with data which used in body
   ;; sokt will close when with-nats-stream macro finish
@@ -48,4 +60,7 @@
 
 
 ;;; Connect with creds file
+(multiple-value-bind (sokt info)
+    (connect-nats-server "127.0.0.1" :cred "your creds file")
+  (read-nats-stream-answer-ping sokt))
 

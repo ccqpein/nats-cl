@@ -44,3 +44,4 @@ After connection be made, NATs server will send a `INFO` message and a `PING` me
 - [x] more examples
 - [ ] more doc && README
 - [x] protocol connection
+- [ ] connect proto still has some implement left

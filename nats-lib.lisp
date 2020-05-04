@@ -31,18 +31,25 @@
          (info (nats-info (cadr (split-data (read-line (usocket:socket-stream sokt))))))
          jwt nkey)
 
-    ;; read jwt and nkey
-    (if cred
-        (progn (multiple-value-setq (jwt nkey)
-                 (nats-cred:read-creds-file (pathname cred)))
-               
-               ;; put connect info to server
-               (format (usocket:socket-stream sokt)
-                       (nats-connect "jwt" jwt
-                                     "sig" (nats-cred:sig-nonce (gethash "nonce" info) nkey)))
+    (if (gethash "nonce" info)
+        (progn
+          
+          ;; read jwt and nkey no matter server need it or not
+          (if cred
+              (multiple-value-setq (jwt nkey)
+                (nats-cred:read-creds-file (pathname cred)))
+              (error "server need authorization, but :cred path is empty"))
 
-               (finish-output (usocket:socket-stream sokt))
-               (err-or-ok (read-line (usocket:socket-stream sokt)))))
+          ;; put cred path in info for client side restart
+          (setf (gethash "credential" info) cred)
+          
+          (format (usocket:socket-stream sokt)
+                  (nats-connect "jwt" jwt
+                                "sig" (nats-cred:sig-nonce (gethash "nonce" info) nkey)))
+          
+          ;; put connect info to server
+          (finish-output (usocket:socket-stream sokt))
+          (err-or-ok (read-line (usocket:socket-stream sokt)))))
 
     ;; consume first PING
     (consume-ping sokt)
@@ -53,7 +60,7 @@
 
 
 (defun split-data (str)
-  "split data with '(protocol tails)"
+  "split data to '(protocol tails)"
   (setf str (subseq str 0 (1- (length str)))) ;; clean the last #\return
   (let ((first-space (position #\Space str)))
     (if (not first-space)
@@ -88,9 +95,9 @@
 
 (defun consume-ping (sokt)
   (let* ((stream (usocket:socket-stream sokt))
-         (this-line (car (split-data (read-line stream)))))
-    (cond ((string= "PING" this-line) (pong sokt))
-          (t (warn "Message is not PING")))))
+         (this-line (split-data (read-line stream))))
+    (cond ((string= "PING" (car this-line)) (pong sokt))
+          (t (warn "Message ~s is not PING" this-line)))))
 
 
 (defmacro with-nats-stream ((socket data &key init) &body body)
@@ -141,13 +148,13 @@ make error directly"
 
 ;;; assume sokt is empty
 ;;; SUB <subject> [queue group] <sid>\r\n
-(defun nats-subs (sokt subject sid consume-func &key queue-group info retry-time)
+(defun nats-subs (sokt subject sid consume-func &key queue-group info)
   (declare (usocket:usocket sokt)
            (simple-string subject)
            (fixnum sid))
 
   (let ((connect-urls (if info (gethash "connect_urls" info) '())) ;; list of servers' ip
-        (retry retry-time)) ;; used to count times of handle-bind auto restart
+        ) ;; used to count times of handle-bind auto restart
     (tagbody
      start
        ;; subscribe
@@ -176,7 +183,7 @@ make error directly"
                          reply-to nil)
                    (funcall consume-func head)) ;; consume message
                
-                 ;; watch
+                 ;; handle message
                  (cond 
                    ((string= "MSG" head)
                     (progn (setf flag t)
@@ -199,7 +206,7 @@ make error directly"
                       (try-to-restart ()
                         :report "restart this subscription by reconnect socket with stored info"
                         (go restart))
-                      )
+                      );;:= TODO: restart with input value
                     )
                  
                    (t (error (conditions:get-conditions tail)
@@ -208,23 +215,26 @@ make error directly"
      restart
        (if (and (not info) (not connect-urls))
            (error "no binding of 'info' or connect-urls, cannot restart"))
+       ;;:= MAYBE: can accept host/port input
        
-       (setf sokt
-             (if info
-                 (connect-nats-server (concatenate 'string (gethash "host" info))
-                                      :port (gethash "port" info))
-                 (let ((temp (str:split #\: (car connect-urls))))
-                   (connect-nats-server (car temp) :port (cadr temp)))
-                 ))
+       (multiple-value-setq (sokt info)
+         (if info
+             (connect-nats-server (concatenate 'string
+                                               (gethash "host" info)) ;host isn't simple string
+                                  :port (gethash "port" info)
+                                  :cred (gethash "credential" info))
 
-       (multiple-value-setq (sokt info) (post-connection sokt))
-     
+             ;;:= MARK: else block cannot connect with cred
+             (let ((temp (str:split #\: (car connect-urls))))
+               (connect-nats-server (car temp) :port (cadr temp))) 
+             ))
+       
        (go start)
        ))
   )
 
 
-;;;:= TODO: CONNECT {["option_name":option_value],...}
+;;; CONNECT {["option_name":option_value],...}
 (defun nats-connect (&rest pairs)
   (let ((table (make-hash-table)))
     ;; put init var
