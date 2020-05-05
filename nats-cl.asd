@@ -3,13 +3,11 @@
 (defpackage #:nats-cl-asdf
   (:use #:CL #:asdf))
 
-
 (in-package #:nats-cl-asdf)
-
 
 (defsystem nats-cl
   :name "nats-cl"
-  :version "0.5"
+  :version (:read-file-form "version")
   :author "ccQpein"
   :maintainer "ccQpein"
   

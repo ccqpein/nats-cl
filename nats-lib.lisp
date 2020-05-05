@@ -19,10 +19,13 @@
 (defvar *PING* (format nil "PING~a" #\return))
 (defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
 
+(defparameter *VERSION* #.(asdf:component-version (asdf:find-system :nats-cl))
+              "version")
+
 
 (defun connect-nats-server (url &key (port 4222) cred)
   "connect to nats servers"
-  (declare (simple-string url))
+  (declare (simple-string url)) ;;socket-connect' url must be string
   (let* ((sokt (usocket:socket-connect url
                                        port
                                        :element-type 'character
@@ -244,7 +247,7 @@ make error directly"
                      ("tls_required" nil)
                      ("name" "")
                      ("lang" "common-lisp")
-                     ("version" "TODO") ;;:= TODO: need find where to put version
+                     ("version" #.*VERSION*)
                      ("protocol" 1)     ;;:= TODO: this maybe change 
                      ("echo" t))
       do (setf (gethash k table) v))
