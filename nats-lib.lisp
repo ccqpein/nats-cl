@@ -15,12 +15,12 @@
 
 (in-package #:nats-lib)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *VERSION* #.(asdf:component-version (asdf:find-system :nats-cl))
+                "version"))
 
 (defvar *PING* (format nil "PING~a" #\return))
 (defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
-
-(defparameter *VERSION* #.(asdf:component-version (asdf:find-system :nats-cl))
-              "version")
 
 
 (defun connect-nats-server (url &key (port 4222) cred)
