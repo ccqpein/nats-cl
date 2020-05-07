@@ -248,7 +248,7 @@ make error directly"
                      ("name" "")
                      ("lang" "common-lisp")
                      ("version" #.*VERSION*)
-                     ("protocol" 1)     ;;:= TODO: this maybe change 
+                     ("protocol" 1) 
                      ("echo" t))
       do (setf (gethash k table) v))
 
@@ -264,7 +264,7 @@ make error directly"
     ;; return str, with CONNECT at beginning
     (format nil "CONNECT ~a~a~a"
             (with-output-to-string (s)
-                (yason:encode table s))
+              (yason:encode table s))
             #\return #\newline)
     ))
 
