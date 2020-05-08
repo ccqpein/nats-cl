@@ -157,7 +157,8 @@ make error directly"
            (fixnum sid))
 
   (let ((connect-urls (if info (gethash "connect_urls" info) '())) ;; list of servers' ip
-        ) ;; used to count times of handle-bind auto restart
+        url port cred ;; these slots for restart 
+        )
     (tagbody
      start
        ;; subscribe
@@ -194,7 +195,8 @@ make error directly"
                              (nats-msg tail))))
                  
                    ((string= "PING" head)
-                    (pong sokt))
+                    (pong sokt)
+                    )
 
                    ((string= "INFO" head)
                     ;; update info and connect-urls
@@ -209,7 +211,22 @@ make error directly"
                       (try-to-restart ()
                         :report "restart this subscription by reconnect socket with stored info"
                         (go restart))
-                      );;:= TODO: restart with input value
+
+                      (restart-with-new-value (a b c)
+                        :report "restart subscription by given data"
+                        :interactive (lambda ()
+                                       (prompt-new-values "input the host: "
+                                                          "input the port (default is 4222): "
+                                                          "input the credential file path: "
+                                                          ))
+                        ;; set host/port/cred slot
+                        (setf host a
+                              port (handler-case (parse-integer b) (t () 4222))
+                              cred c)
+                        
+                        (go restart-with-value)
+                        )
+                      )
                     )
                  
                    (t (error (conditions:get-conditions tail)
@@ -218,23 +235,35 @@ make error directly"
      restart
        (if (and (not info) (not connect-urls))
            (error "no binding of 'info' or connect-urls, cannot restart"))
-       ;;:= MAYBE: can accept host/port input
-       
-       (multiple-value-setq (sokt info)
-         (if info
-             (connect-nats-server (concatenate 'string
-                                               (gethash "host" info)) ;host isn't simple string
-                                  :port (gethash "port" info)
-                                  :cred (gethash "credential" info))
 
-             ;;:= MARK: else block cannot connect with cred
-             (let ((temp (str:split #\: (car connect-urls))))
-               (connect-nats-server (car temp) :port (cadr temp))) 
-             ))
+       (if info
+           ;; set slots with info value
+           (setf host (concatenate 'string
+                                   (gethash "host" info)) ;; host isn't simple string
+                 port (gethash "port" info)
+                 cred (gethash "credential" info))
+           
+           ;; set with connect-nets-server
+           (let ((temp (str:split #\: (car connect-urls))))
+             (setf host (car temp)
+                   port (cadr temp)))
+           )
        
-       (go start)
-       ))
+     restart-with-value
+       (multiple-value-setq (sokt info)
+         (connect-nats-server host :port port :cred cred))
+       
+       (go start)))
   )
+
+
+(defun prompt-new-values (&rest prompts)
+  (loop
+    for mesg in prompts
+    do (format *query-io* mesg)
+    do (force-output *query-io*)
+    collect (read-line *query-io*) into result
+    finally (return result)))
 
 
 ;;; CONNECT {["option_name":option_value],...}
