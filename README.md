@@ -37,12 +37,5 @@ After connection be made, NATs server will send a `INFO` message and a `PING` me
 
 
 ### TODO ###
-- [x] conditions
-- [x] organise code
-- [x] JWT support
 - [ ] Leaf nodes
-- [x] more examples
-- [x] more doc && README
-- [x] protocol connection
-- [x] connect proto still has some implement left
 - [ ] can change PING interval when it connect 
