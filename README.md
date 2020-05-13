@@ -28,13 +28,11 @@ OR, import by quicklisp, make sure you have installed it first:
 After connection be made, NATs server will send a `INFO` message and a `PING` message to client. So, in examples: 
 
 ```lisp
-(let ((socket (connect-nats-server "127.0.0.1")) 
-      info)
-  (multiple-value-setq (sokt info) (post-connection sokt)))
+(let* (sokt
+       info
+       )
+  (multiple-value-setq (sokt info) (connect-nats-server "127.0.0.1")))
 ```
-
-`post-connection` always the first step after connect to servers.
-
 
 ### TODO ###
 - [ ] Leaf nodes
