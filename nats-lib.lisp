@@ -16,8 +16,8 @@
 (in-package #:nats-lib)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *VERSION* #.(asdf:component-version (asdf:find-system :nats-cl))
-                "version"))
+  (defparameter *VERSION* (asdf:component-version (asdf:find-system :nats-cl))
+    "version"))
 
 (defvar *PING* (format nil "PING~a" #\return))
 (defvar *PING-REP* (format nil "PONG~a~a" #\return #\newline))
@@ -157,7 +157,7 @@ make error directly"
            (fixnum sid))
 
   (let ((connect-urls (if info (gethash "connect_urls" info) '())) ;; list of servers' ip
-        url port cred ;; these slots for restart 
+        host port cred ;; these slots for restart 
         )
     (tagbody
      start
@@ -201,7 +201,7 @@ make error directly"
                    ((string= "INFO" head)
                     ;; update info and connect-urls
                     (setf info (nats-info tail))
-                    (dolist (u (gethash "connect_urls" info)) (pushnew a connect-urls))
+                    (dolist (u (gethash "connect_urls" info)) (pushnew u connect-urls))
                     )
 
                    ((string= "-ERR" head)
